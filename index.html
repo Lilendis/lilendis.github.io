@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор ПЦР данных с нормировкой</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧬</text></svg>">
+    <!-- Библиотека для графиков Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Плагин для отображения значений на графиках -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <!-- Библиотека для создания ZIP архивов -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1 class="title">🧬 Анализатор ПЦР данных с нормировкой</h1>
+            <p class="subtitle">Загрузите Excel-файл с результатами ПЦР для автоматической обработки и нормировки данных</p>
+        </header>
+
+        <main class="main-content">
+            <section class="info-section">
+                <div class="info-card">
+                    <h3>📊 Функционал</h3>
+                    <ul class="feature-list">
+                        <li><strong>Группировка данных</strong> по Target (генам)</li>
+                        <li><strong>Расчет средних значений</strong> Cq</li>
+                        <li><strong>Нормировка</strong> по контрольному гену (формула: 2^(-ΔCq))</li>
+                        <li><strong>Экспорт</strong> в Excel и текстовый формат</li>
+                        <li><strong>Визуализация</strong> с цветовой индикацией</li>
+                    </ul>
+                </div>
+
+                <div class="note-card">
+                    <h3>⚠️ Важная информация</h3>
+                    <p>Файл должен содержать колонки <strong>Target</strong>, <strong>Sample</strong> и <strong>Cq</strong> начиная с 27 строки.</p>
+                    <p>Формат значений Cq: числа с точкой или запятой как десятичным разделителем.</p>
+                </div>
+            </section>
+
+            <section class="upload-section">
+                <div class="upload-card">
+                    <h2>📁 Загрузка файла</h2>
+                    <div class="file-input-container">
+                        <label for="excelFile" class="file-label">
+                            <span class="file-icon">📄</span>
+                            <span class="file-text">Выберите Excel или CSV файл</span>
+                            <input type="file" id="excelFile" accept=".xlsx, .xls, .csv" class="file-input">
+                        </label>
+                        <div class="file-info" id="fileInfo"></div>
+                    </div>
+                    <button id="analyzeBtn" class="btn btn-primary btn-large">
+                        <span class="btn-icon">🔬</span>
+                        Проанализировать данные
+                    </button>
+                </div>
+            </section>
+
+            <section class="normalization-section">
+                <div class="normalization-card">
+                    <h2>🧪 Настройка нормировки</h2>
+                    <div class="normalization-controls">
+                        <div class="input-group">
+                            <label for="normalizationGene" class="input-label">Ген для нормировки:</label>
+                            <input type="text" id="normalizationGene" value="36b4" 
+                                   placeholder="Введите название гена" class="text-input">
+                            <div class="input-hint">Например: 36b4, ACTB, GAPDH</div>
+                        </div>
+                        <button id="updateNormBtn" class="btn btn-secondary">
+                            <span class="btn-icon">🔄</span>
+                            Обновить нормировку
+                        </button>
+                    </div>
+                    <div class="formula-info">
+                        <strong>Формула нормировки:</strong> 2<sup>(-ΔCq)</sup>, где ΔCq = Cq<sub>гена</sub> - Cq<sub>контрольного гена</sub>
+                    </div>
+                </div>
+            </section>
+
+            <section id="resultsSection" class="results-section" style="display: none;">
+                <div class="results-header">
+                    <h2>📊 Результаты анализа</h2>
+                    <div class="controls" id="resultsControls">
+                        <button id="exportBtn" class="btn btn-export">
+                            <span class="btn-icon">📊</span>
+                            Экспорт в Excel
+                        </button>
+                        <button id="exportNormBtn" class="btn btn-export">
+                            <span class="btn-icon">📈</span>
+                            Экспорт нормировки
+                        </button>
+                        <button id="copyBtn" class="btn btn-secondary">
+                            <span class="btn-icon">📋</span>
+                            Копировать текст
+                        </button>
+                        <button id="resetBtn" class="btn btn-reset">
+                            <span class="btn-icon">🔄</span>
+                            Новый анализ
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <div class="tab-buttons">
+                        <button id="meanTabBtn" class="tab-btn active" data-tab="mean">
+                            <span class="tab-icon">📈</span>
+                            Средние значения Cq
+                        </button>
+                        <button id="normTabBtn" class="tab-btn" data-tab="norm">
+                            <span class="tab-icon">🧬</span>
+                            Нормированные значения
+                        </button>
+                    </div>
+                    
+                    <div class="tab-content">
+                        <div id="meanTab" class="tab-pane active">
+                            <div id="meanTable"></div>
+                        </div>
+                        <div id="normTab" class="tab-pane">
+                            <div id="normTable"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="legend">
+                    <h4>📝 Легенда:</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: #27ae60;"></span>
+                            <span>Ген нормировки</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: #c0392b;"></span>
+                            <span>NTC (контроль без матрицы)</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: #ffeaa7;"></span>
+                            <span>UNDETERMINED (значение = 0)</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-color" style="background-color: #e8f4f8;"></span>
+                            <span>Среднее значение Cq</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="textOutput" class="text-output"></div>
+            </section>
+
+            <section class="help-section">
+                <div class="help-card">
+                    <h3>❓ Как это работает</h3>
+                    <ol class="steps-list">
+                        <li><strong>Загрузите Excel файл</strong> с результатами ПЦР</li>
+                        <li><strong>Программа автоматически</strong> находит данные начиная с 27 строки</li>
+                        <li><strong>Данные группируются</strong> по Target (генам)</li>
+                        <li><strong>Для каждого гена</strong> выводятся все Sample (образцы)</li>
+                        <li><strong>Рассчитывается среднее</strong> значение Cq между повторностями</li>
+                        <li><strong>Выполняется нормировка</strong> по указанному контрольному гену</li>
+                        <li><strong>Результаты можно</strong> экспортировать или скопировать</li>
+                    </ol>
+                </div>
+            </section>
+            <section id="chartsSection" class="charts-section">
+            <div class="charts-header">
+                <h2>📊 Графическое представление результатов</h2>
+                <div class="chart-controls">
+                    <div class="input-group">
+                        <label for="excludeSamples" class="input-label">
+                            Исключить образцы из графиков (через запятую):
+                        </label>
+                        <input type="text" id="excludeSamples" 
+                            placeholder="например: NTC, Control, Blank" 
+                            class="text-input" style="width: 100%;">
+                        <div class="input-hint">Эти образцы не будут отображаться на графиках</div>
+                    </div>
+                    
+                    <div class="chart-actions">
+                        <button id="generateChartsBtn" class="btn btn-primary">
+                            <span class="btn-icon">📈</span>
+                            Сгенерировать графики
+                        </button>
+                        <button id="downloadAllChartsBtn" class="btn btn-export">
+                            <span class="btn-icon">🖼️</span>
+                            Скачать все графики
+                        </button>
+                        <button id="exportChartsDataBtn" class="btn btn-secondary">
+                            <span class="btn-icon">📊</span>
+                            Экспорт данных графиков
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="charts-filters">
+                <div class="filter-group">
+                    <label class="filter-label">Цветовая схема:</label>
+                    <select id="colorScheme" class="select-input">
+                        <option value="category10">Стандартная</option>
+                        <option value="set1">Яркая</option>
+                        <option value="set2">Пастельная</option>
+                        <option value="set3">Разноцветная</option>
+                        <option value="tableau10">Tableau</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label class="filter-label">Ориентация:</label>
+                    <select id="chartOrientation" class="select-input">
+                        <option value="vertical">Вертикальная</option>
+                        <option value="horizontal">Горизонтальная</option>
+                    </select>
+                </div>
+                
+                <div class="filter-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="showValues" checked>
+                        Показывать значения на графиках
+                    </label>
+                </div>
+                
+                <div class="filter-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="sortByValue" checked>
+                        Сортировать по значению
+                    </label>
+                </div>
+            </div>
+            
+            <div class="charts-container" id="chartsContainer">
+                <!-- Графики будут добавляться здесь -->
+            </div>
+            
+            <div class="charts-legend">
+                <h4>📝 Подсказки:</h4>
+                <ul>
+                    <li>Графики отображают нормированные значения для каждого Target</li>
+                    <li>Контрольный ген нормировки не отображается на графиках</li>
+                    <li>Образцы, указанные в поле исключения, будут скрыты</li>
+                    <li>Наведите курсор на столбец, чтобы увидеть точное значение</li>
+                    <li>Нажмите на график для скачивания в PNG формате</li>
+                </ul>
+            </div>
+        </section>
+        </main>
+
+        <footer class="footer">
+            <p>Анализатор ПЦР данных | Для лабораторного использования</p>
+            <p class="footer-note">Поддерживаемые форматы: .xlsx, .xls, .csv</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
